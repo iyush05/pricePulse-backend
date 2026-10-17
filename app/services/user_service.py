@@ -2,6 +2,7 @@ from typing import Optional
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm.attributes import flag_modified
 from app.models.user import User
 from app.models.subscription import Subscription
 from app.models.alert import Alert
@@ -21,10 +22,11 @@ class UserService:
         if update_data.locale:
             user.locale = update_data.locale
         if update_data.notification_prefs is not None:
-            # Merge existing prefs
+            # Merge existing prefs and reassign to trigger SQLAlchemy dirty tracking
             prefs = dict(user.notification_prefs or {})
             prefs.update(update_data.notification_prefs)
             user.notification_prefs = prefs
+            flag_modified(user, "notification_prefs")
 
         db.add(user)
         await db.commit()
