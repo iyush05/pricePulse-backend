@@ -77,7 +77,11 @@ class ChatService:
 
     @classmethod
     async def query_llm(
-        cls, system_prompt: str, user_message: str, history: List[ChatMessage]
+        cls,
+        system_prompt: str,
+        user_message: str,
+        history: List[ChatMessage],
+        sources: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Call OpenAI API or generate grounded intelligent response if API key is omitted."""
         if settings.OPENAI_API_KEY:
@@ -107,12 +111,36 @@ class ChatService:
             except Exception as e:
                 logger.error("OpenAI call failed, falling back to local synthesis", error=str(e))
 
-        # Grounded fallback synthesizer
+        # Intelligent grounded fallback synthesizer using structured telemetry
+        if sources:
+            matching_sources = []
+            q_lower = user_message.lower()
+            for s in sources:
+                title = s.get("product_title", "").lower()
+                detail = s.get("detail", "").lower()
+                if any(w in title or w in detail for w in q_lower.split() if len(w) > 3):
+                    matching_sources.append(s)
+
+            target_sources = matching_sources if matching_sources else sources
+
+            advice_bullets = []
+            for item in target_sources[:3]:
+                title = item.get("product_title", "Tracked Item")
+                detail = item.get("detail", "")
+                advice_bullets.append(f"• **{title}**\n  Telemetry: {detail}")
+
+            bullet_text = "\n\n".join(advice_bullets)
+            return (
+                f"Here is what our PricePulse telemetry and recommendation models indicate regarding your query:\n\n"
+                f"{bullet_text}\n\n"
+                f"**Recommendation Advice:**\n"
+                f"If a product shows `WAIT`, our predictive algorithms indicate potential price softening ahead. "
+                f"If you see `BUY`, the current observation is within 5% of its lowest historical record, representing a prime purchasing window."
+            )
+
         return (
-            f"Based on your tracked items in PricePulse:\n\n"
-            f"Here is what our ML model and price history show regarding your query:\n"
-            f"- Your items are being continuously tracked with adaptive cadence.\n"
-            f"- Refer to the sources attached to this response for current Buy/Wait signals and historical lows."
+            "You are actively tracking products with PricePulse. Currently no active subscriptions match your query. "
+            "Track an Amazon or Flipkart URL to receive predictive buy-timing recommendations."
         )
 
     @classmethod
@@ -160,7 +188,7 @@ class ChatService:
             f"USER'S TRACKED PRODUCTS AND TELEMETRY:\n{grounded_context}"
         )
 
-        reply = await cls.query_llm(system_prompt, request.message, past_msgs)
+        reply = await cls.query_llm(system_prompt, request.message, past_msgs, sources=sources)
 
         # 5. Persist user and assistant messages
         user_msg = ChatMessage(

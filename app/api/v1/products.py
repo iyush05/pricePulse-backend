@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_optional_user
 from app.models.user import User
 from app.schemas.product import (
     TrackProductRequest,
@@ -39,10 +39,10 @@ async def list_products(
     category: Optional[str] = Query(None, description="Filter by category"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all tracked products with optional filtering and pagination."""
+    """List all tracked products with optional filtering and pagination (publicly synchronized catalog)."""
     items, total = await ProductService.list_products(
         db, platform=platform, category=category, page=page, limit=limit
     )
@@ -59,7 +59,7 @@ async def list_products(
 @router.get("/{id}", response_model=ProductResponse)
 async def get_product(
     id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get full details of a single tracked product."""
@@ -70,7 +70,7 @@ async def get_product(
 @router.get("/{id}/stats", response_model=PriceStatsResponse)
 async def get_product_stats(
     id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get statistical baselines and extrema for a product (current, low, high, 30d/90d averages)."""
@@ -81,7 +81,7 @@ async def get_product_stats(
 @router.get("/{id}/recommendation", response_model=RecommendationResponse)
 async def get_product_recommendation(
     id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
     """

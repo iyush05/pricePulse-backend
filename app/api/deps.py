@@ -77,3 +77,37 @@ async def get_current_user(
             detail="User account is deactivated",
         )
     return user
+
+
+optional_security = HTTPBearer(auto_error=False)
+
+
+async def get_optional_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+    db: AsyncSession = Depends(get_db),
+    redis_client: Optional[aioredis.Redis] = Depends(get_redis),
+) -> Optional[User]:
+    if not credentials:
+        return None
+    try:
+        token = credentials.credentials
+        payload = decode_token(token, expected_type="access")
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+
+        if redis_client:
+            try:
+                is_blacklisted = await redis_client.get(f"blacklist:{token}")
+                if is_blacklisted:
+                    return None
+            except Exception:
+                pass
+
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user and user.is_active:
+            return user
+    except Exception:
+        return None
+    return None
