@@ -8,6 +8,10 @@ class TrackProductRequest(BaseModel):
     target_price: Optional[float] = None
 
 
+class UpdateProductUrlRequest(BaseModel):
+    url: str
+
+
 class ProductResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -28,6 +32,8 @@ class ProductResponse(BaseModel):
     all_time_low: Optional[float] = None
     all_time_high: Optional[float] = None
     last_observed_at: Optional[datetime] = None
+    is_available: bool = True
+    listing_status: str = "active"
 
 
 class ProductSummaryResponse(BaseModel):

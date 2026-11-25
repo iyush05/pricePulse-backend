@@ -24,47 +24,72 @@ class AmazonParser:
 
         # 2. Price
         raw_price = None
-        price_selectors = [
-            ".apexPriceToPay .a-offscreen",
-            "#priceblock_dealprice",
-            "#priceblock_ourprice",
-            "#priceblock_saleprice",
-            ".priceToPay .a-offscreen",
-            "#corePrice_desktop .a-price .a-offscreen",
-            "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
-            "span.a-price.aok-align-center .a-offscreen",
-            ".a-price.a-text-price.header-price .a-offscreen",
-            "#apex_desktop .a-offscreen",
-            ".a-price .a-offscreen",
-            "#price_inside_buybox",
-            "#newBuyBoxPrice",
+        main_containers = [
+            "#corePriceDisplay_desktop_feature_div",
+            "#apex_desktop",
+            "#desktop_buybox",
+            "#centerCol",
         ]
-        for sel in price_selectors:
-            price_el = soup.select_one(sel)
-            if price_el and price_el.get_text(strip=True):
-                txt = price_el.get_text(strip=True)
-                if re.search(r"\d+", txt):
-                    raw_price = txt
-                    break
 
-        # Fallback: a-price-whole and a-price-fraction
-        if not raw_price:
-            whole_el = soup.select_one(".a-price .a-price-whole") or soup.select_one(".priceToPay .a-price-whole")
+        # First pass: search within main product buybox containers
+        for cont_sel in main_containers:
+            cont = soup.select_one(cont_sel)
+            if not cont:
+                continue
+
+            # Check offscreen price elements (Amazon modern uses aok-offscreen)
+            for sel in [
+                ".priceToPay .aok-offscreen",
+                ".apexPriceToPay .aok-offscreen",
+                ".apex-pricetopay-value .aok-offscreen",
+                "span.aok-offscreen",
+                ".priceToPay .a-offscreen",
+                ".apexPriceToPay .a-offscreen",
+                ".apex-pricetopay-value .a-offscreen",
+                "#priceblock_dealprice",
+                "#priceblock_ourprice",
+                "#priceblock_saleprice",
+                ".a-price.header-price .a-offscreen",
+                "#price_inside_buybox",
+                "#newBuyBoxPrice",
+            ]:
+                el = cont.select_one(sel)
+                if el and el.get_text(strip=True):
+                    txt = el.get_text(strip=True)
+                    m = re.search(r"([₹$€£]\s*[0-9,]+(?:\.[0-9]{2})?)", txt)
+                    if m:
+                        raw_price = m.group(1)
+                        break
+                    elif re.search(r"\d+", txt):
+                        raw_price = txt
+                        break
+            if raw_price:
+                break
+
+            # Check price-whole inside priceToPay or main container
+            whole_el = (
+                cont.select_one(".priceToPay .a-price-whole")
+                or cont.select_one(".apexPriceToPay .a-price-whole")
+                or cont.select_one(".apex-pricetopay-value .a-price-whole")
+                or cont.select_one(".a-price .a-price-whole")
+            )
             if whole_el:
                 whole = whole_el.get_text(strip=True).rstrip(".")
-                sym_el = soup.select_one(".a-price .a-price-symbol")
-                sym = sym_el.get_text(strip=True) if sym_el else ""
-                fract_el = soup.select_one(".a-price .a-price-fraction")
+                sym_el = cont.select_one(".a-price .a-price-symbol")
+                sym = sym_el.get_text(strip=True) if sym_el else "₹"
+                fract_el = cont.select_one(".a-price .a-price-fraction")
                 fract = fract_el.get_text(strip=True) if fract_el else "00"
                 raw_price = f"{sym}{whole}.{fract}"
+                break
 
-        # Fallback: regex search for currency pattern in buybox / price blocks
+        # Fallback: regex search for currency pattern strictly in buybox / centerCol
         if not raw_price:
-            price_box = soup.select_one("#desktop_buybox") or soup.select_one("#centerCol") or soup
-            box_text = price_box.get_text(" ", strip=True) if price_box else ""
-            m = re.search(r"([₹$€£]\s*[0-9,]+(?:\.[0-9]{2})?)", box_text)
-            if m:
-                raw_price = m.group(1)
+            price_box = soup.select_one("#desktop_buybox") or soup.select_one("#centerCol")
+            if price_box:
+                box_text = price_box.get_text(" ", strip=True)
+                m = re.search(r"([₹$€£]\s*[0-9,]+(?:\.[0-9]{2})?)", box_text)
+                if m:
+                    raw_price = m.group(1)
 
         # Fallback: embedded JSON script tags
         if not raw_price:
@@ -76,13 +101,22 @@ class AmazonParser:
                         raw_price = m.group(1)
                         break
 
-        # 3. Availability
+        # 3. Availability and Dead Link Check
         availability = True
+        is_dead_link = False
         avail_el = soup.select_one("#availability") or soup.select_one("#outOfStock")
         if avail_el:
             avail_text = avail_el.get_text(strip=True).lower()
             if any(term in avail_text for term in ["currently unavailable", "out of stock", "we don't know when", "temporarily out"]):
                 availability = False
+
+        title_lower = (title or "").lower()
+        if any(term in title_lower for term in ["page not found", "404 - document not found", "looking for something?"]):
+            availability = False
+            is_dead_link = True
+        if soup.select_one("img[alt*='dogs of Amazon']") or soup.select_one("#g"):
+            availability = False
+            is_dead_link = True
 
         # 4. Image
         image_url = None
@@ -120,5 +154,6 @@ class AmazonParser:
             "raw_price": raw_price,
             "image_url": image_url,
             "availability": availability,
+            "is_dead_link": is_dead_link,
             "category": category,
         }

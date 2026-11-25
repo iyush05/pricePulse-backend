@@ -103,6 +103,14 @@ class FlipkartParser:
                     image_url = og_img["content"]
 
         # 5. Availability checks
+        is_dead_link = False
+        page_lower = soup.get_text(" ", strip=True).lower()
+        if any(term in page_lower for term in ["this product is no longer available", "page is not available", "page not found"]):
+            availability = False
+            is_dead_link = True
+        elif any(term in page_lower for term in ["sold out", "currently out of stock", "item is out of stock"]):
+            availability = False
+
         avail_el = soup.select_one("div._16FRp0") or soup.select_one("div._1dVc8W")
         if avail_el:
             text = avail_el.get_text(strip=True).lower()
@@ -120,5 +128,6 @@ class FlipkartParser:
             "raw_price": raw_price,
             "image_url": image_url,
             "availability": availability,
+            "is_dead_link": is_dead_link,
             "category": category,
         }

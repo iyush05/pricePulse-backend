@@ -84,8 +84,7 @@ class SubscriptionService:
         db: AsyncSession, user: User, subscription_id: str
     ) -> None:
         sub = await SubscriptionService.get_subscription(db, user, subscription_id)
-        sub.is_active = False
-        db.add(sub)
+        await db.delete(sub)
         await db.commit()
 
 

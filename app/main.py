@@ -15,6 +15,27 @@ from app.middleware.cache import CacheMiddleware
 logger = structlog.get_logger(__name__)
 
 
+async def auto_seed_baseline_data():
+    """Ensure baseline products & historical data exist on startup for all developers."""
+    try:
+        from pathlib import Path
+        from scripts.import_historical_data import import_historical_data
+        from scripts.populate_synthetic_history import populate_synthetic_history
+
+        backend_dir = Path(__file__).resolve().parent.parent
+        sony_json = backend_dir / "data" / "product_price_history_1year.json"
+        if sony_json.exists():
+            try:
+                await import_historical_data(str(sony_json))
+            except Exception as e:
+                logger.debug("Historical data already imported or skipped", error=str(e))
+
+        await populate_synthetic_history()
+        logger.info("Baseline product and price history verified.")
+    except Exception as e:
+        logger.warning("Auto-seed check non-fatal notice during startup", error=str(e))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: ensure tables exist
@@ -22,6 +43,8 @@ async def lifespan(app: FastAPI):
     try:
         await init_db()
         logger.info("Database tables initialized successfully.")
+        # Automatically seed baseline data if database is fresh
+        await auto_seed_baseline_data()
     except Exception as e:
         logger.error("Database initialization failed", error=str(e))
     yield

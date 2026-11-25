@@ -39,6 +39,7 @@ class Product(Base):
         nullable=False,
     )
     is_dormant: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
 
     # Denormalized aggregates for sub-millisecond retrieval
     last_price: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
@@ -49,3 +50,11 @@ class Product(Base):
     # Relationships
     subscriptions = relationship("Subscription", back_populates="product", cascade="all, delete-orphan")
     price_records = relationship("PriceHistory", back_populates="product", cascade="all, delete-orphan")
+
+    @property
+    def listing_status(self) -> str:
+        if not self.is_available:
+            return "out_of_stock"
+        if self.is_dormant:
+            return "dormant"
+        return "active"

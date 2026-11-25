@@ -101,27 +101,38 @@ class Normaliser:
                 quarantine_reason="Non-positive or invalid parsed price value",
             )
 
-        # Quarantine check: implausible jump (>50% deviation from last price)
+        # Standardize currency to default_currency if they differ (USD <-> INR)
+        effective_price = price
+        effective_currency = currency
+        if currency != default_currency:
+            if currency == "INR" and default_currency == "USD":
+                effective_price = round(price / 84.0, 2)
+                effective_currency = "USD"
+            elif currency == "USD" and default_currency == "INR":
+                effective_price = round(price * 84.0, 2)
+                effective_currency = "INR"
+
+        # Quarantine check: implausible jump (>50% deviation from last price in normalized currency)
         if last_known_price and last_known_price > 0:
-            pct_change = abs(price - last_known_price) / last_known_price
+            pct_change = abs(effective_price - last_known_price) / last_known_price
             if pct_change > settings.MAX_PRICE_DEVIATION:
                 logger.warning(
                     "Price flagged for quarantine due to extreme deviation",
-                    price=price,
+                    price=effective_price,
                     last_known_price=last_known_price,
                     deviation=pct_change,
                 )
                 return NormalisedObservation(
-                    price=price,
-                    currency=currency,
+                    price=effective_price,
+                    currency=effective_currency,
                     availability=availability,
                     is_quarantined=True,
                     quarantine_reason=f"Extreme deviation of {pct_change:.1%} exceeds threshold",
                 )
 
         return NormalisedObservation(
-            price=price,
-            currency=currency,
+            price=effective_price,
+            currency=effective_currency,
             availability=availability,
             is_quarantined=False,
             quarantine_reason=None,

@@ -90,6 +90,7 @@ class ProductService:
                 poll_interval_s=settings.DEFAULT_POLL_INTERVAL_S,
                 next_poll_at=now + timedelta(seconds=settings.DEFAULT_POLL_INTERVAL_S),
                 is_dormant=False,
+                is_available=observation.availability,
                 last_price=observation.price if not observation.is_quarantined and observation.price > 0 else None,
                 all_time_low=observation.price if not observation.is_quarantined and observation.price > 0 else None,
                 all_time_high=observation.price if not observation.is_quarantined and observation.price > 0 else None,
@@ -206,3 +207,114 @@ class ProductService:
         res = await db.execute(stmt)
         items = res.scalars().all()
         return list(items), total
+
+    @staticmethod
+    async def delete_product(db: AsyncSession, product_id: str) -> None:
+        product = await ProductService.get_product_by_id(db, product_id)
+        await db.delete(product)
+        await db.commit()
+
+    @staticmethod
+    async def refresh_product_price(db: AsyncSession, product_id: str) -> Product:
+        product = await ProductService.get_product_by_id(db, product_id)
+        if not product.url:
+            return product
+
+        try:
+            raw_extraction = await scraper_pool.scrape(product.url, product.platform)
+            raw_price = raw_extraction.get("raw_price")
+            if raw_price:
+                obs = normaliser.normalise(
+                    raw_price_str=raw_price,
+                    availability=raw_extraction.get("availability", True),
+                    last_known_price=float(product.last_price) if product.last_price else None,
+                    default_currency=product.currency,
+                )
+                if not obs.is_quarantined and obs.price > 0:
+                    now = datetime.now(timezone.utc)
+                    history = PriceHistory(
+                        product_id=product.id,
+                        observed_at=now,
+                        price=obs.price,
+                        currency=obs.currency,
+                        availability=obs.availability,
+                        source_run_id=f"refresh-{product.id}"[:36],
+                    )
+                    db.add(history)
+                    product.last_price = obs.price
+                    product.last_observed_at = now
+                    product.is_available = obs.availability
+                    if product.all_time_low is None or obs.price < float(product.all_time_low):
+                        product.all_time_low = obs.price
+                    if product.all_time_high is None or obs.price > float(product.all_time_high):
+                        product.all_time_high = obs.price
+                    await db.commit()
+                    await db.refresh(product)
+                    search_service.index_product(product)
+        except Exception as e:
+            logger.warning("Live refresh scrape failed", product_id=product_id, error=str(e))
+        return product
+
+    @staticmethod
+    async def update_product_url(db: AsyncSession, product_id: str, new_url: str) -> Product:
+        product = await ProductService.get_product_by_id(db, product_id)
+
+        clean_url = URLResolver.strip_tracking_parameters(new_url.strip())
+        clean_url = await URLResolver.unshorten_url(clean_url)
+        resolved = URLResolver.resolve_sync(clean_url)
+
+        try:
+            raw_extraction = await scraper_pool.scrape(clean_url, resolved.platform)
+        except Exception as e:
+            logger.warning("Scrape failed during URL update", error=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"The provided URL could not be reached or verified: {str(e)}"
+            )
+
+        if raw_extraction.get("is_dead_link"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The provided URL returned a dead link or 404 Page Not Found. Please check the URL."
+            )
+
+        raw_price_str = raw_extraction.get("raw_price")
+        obs = normaliser.normalise(
+            raw_price_str=raw_price_str,
+            availability=raw_extraction.get("availability", True),
+            default_currency="INR" if resolved.region == "IN" else "USD",
+        )
+
+        now = datetime.now(timezone.utc)
+        product.url = clean_url
+        product.canonical_key = resolved.canonical_key
+        product.platform = resolved.platform
+        product.region = resolved.region
+        if raw_extraction.get("title"):
+            product.title = raw_extraction["title"]
+        if raw_extraction.get("image_url"):
+            product.image_url = raw_extraction["image_url"]
+
+        if not obs.is_quarantined and obs.price > 0:
+            product.last_price = obs.price
+            product.last_observed_at = now
+            product.is_available = obs.availability
+            if product.all_time_low is None or obs.price < float(product.all_time_low):
+                product.all_time_low = obs.price
+            if product.all_time_high is None or obs.price > float(product.all_time_high):
+                product.all_time_high = obs.price
+
+            history = PriceHistory(
+                product_id=product.id,
+                observed_at=now,
+                price=obs.price,
+                currency=obs.currency,
+                availability=obs.availability,
+                source_run_id=f"update-url-{product.id}"[:36],
+            )
+            db.add(history)
+
+        await db.commit()
+        await db.refresh(product)
+        search_service.index_product(product)
+        return product

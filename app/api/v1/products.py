@@ -7,6 +7,7 @@ from app.api.deps import get_current_user, get_optional_user
 from app.models.user import User
 from app.schemas.product import (
     TrackProductRequest,
+    UpdateProductUrlRequest,
     ProductResponse,
     PaginatedProductsResponse,
 )
@@ -90,3 +91,41 @@ async def get_product_recommendation(
     """
     product = await ProductService.get_product_by_id(db, id)
     return await recommender.get_recommendation(db, product)
+
+
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_product(
+    id: str,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Permanently delete/destroy a tracked product and its history/subscriptions.
+    """
+    await ProductService.delete_product(db, id)
+    return None
+
+
+@router.put("/{id}/url", response_model=ProductResponse)
+async def update_product_url(
+    id: str,
+    data: UpdateProductUrlRequest,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update a product's URL with verification that the new URL is active and reachable.
+    """
+    return await ProductService.update_product_url(db, id, data.url)
+
+
+@router.post("/{id}/refresh", response_model=ProductResponse)
+async def refresh_product_price(
+    id: str,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Trigger an immediate live re-scrape to fetch and record the latest price.
+    """
+    return await ProductService.refresh_product_price(db, id)
