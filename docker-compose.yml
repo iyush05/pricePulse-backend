@@ -1,6 +1,7 @@
 services:
   api:
     build: .
+    image: pricepulse-backend:latest
     container_name: pricepulse-api
     ports:
       - "8000:8000"
@@ -26,6 +27,7 @@ services:
 
   celery-worker:
     build: .
+    image: pricepulse-backend:latest
     container_name: pricepulse-celery-worker
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/pricepulse
@@ -35,22 +37,32 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - MEILISEARCH_URL=http://meilisearch:7700
       - MEILISEARCH_KEY=masterKey123456
+      - SQLITE_DEV_FALLBACK=False
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
     command: celery -A app.workers.celery_app.celery_app worker --loglevel=info -Q default,scraping,alerts,notifications
 
   celery-beat:
     build: .
+    image: pricepulse-backend:latest
     container_name: pricepulse-celery-beat
     environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/pricepulse
+      - SYNC_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/pricepulse
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SQLITE_DEV_FALLBACK=False
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
     command: celery -A app.workers.celery_app.celery_app beat --loglevel=info

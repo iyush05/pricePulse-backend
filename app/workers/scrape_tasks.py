@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 import structlog
 from app.workers.celery_app import celery_app
-from app.database import AsyncSessionLocal
+from app.workers.db import worker_db_session
 from app.models.product import Product
 from app.models.price_history import PriceHistory
 from app.ingestion.scraper_pool import scraper_pool
@@ -26,7 +26,7 @@ def scrape_product(self, product_id: str):
     Scrape -> Normalise -> Write DB -> Evaluate Alerts -> Recalculate Polling Cadence.
     """
     async def _execute():
-        async with AsyncSessionLocal() as db:
+        async with worker_db_session() as db:
             product = await db.get(Product, product_id)
             if not product:
                 return

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from app.workers.celery_app import celery_app
-from app.database import AsyncSessionLocal
+from app.workers.db import worker_db_session
 from app.models.product import Product
 from app.models.subscription import Subscription
 from app.models.price_history import PriceHistory
@@ -26,7 +26,7 @@ def recalculate_poll_cadence(product_id: str):
     - Anti-synchronization jitter
     """
     async def _recalculate():
-        async with AsyncSessionLocal() as db:
+        async with worker_db_session() as db:
             product = await db.get(Product, product_id)
             if not product:
                 return
@@ -116,7 +116,7 @@ def schedule_due_scrapes():
     from app.workers.scrape_tasks import scrape_product
 
     async def _schedule():
-        async with AsyncSessionLocal() as db:
+        async with worker_db_session() as db:
             now = datetime.now(timezone.utc)
             query = select(Product.id).where(
                 Product.next_poll_at <= now,

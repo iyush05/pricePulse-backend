@@ -1,5 +1,6 @@
 from typing import AsyncGenerator
 import structlog
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
 
@@ -42,7 +43,19 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+def _ensure_missing_columns(sync_conn) -> None:
+    """Apply lightweight additive column migrations for existing databases."""
+    inspector = inspect(sync_conn)
+    if "products" in inspector.get_table_names():
+        columns = {col["name"] for col in inspector.get_columns("products")}
+        if "is_available" not in columns:
+            sync_conn.execute(
+                text("ALTER TABLE products ADD COLUMN is_available BOOLEAN NOT NULL DEFAULT true")
+            )
+
+
 async def init_db() -> None:
-    """Create tables if they don't exist yet."""
+    """Create tables if they don't exist yet and ensure new columns exist."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_missing_columns)

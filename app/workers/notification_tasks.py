@@ -1,7 +1,7 @@
 import asyncio
 import structlog
 from app.workers.celery_app import celery_app
-from app.database import AsyncSessionLocal
+from app.workers.db import worker_db_session
 from app.models.alert import Alert
 from app.models.subscription import Subscription
 from app.models.user import User
@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 @celery_app.task(name="app.workers.notification_tasks.dispatch_alert_notification")
 def dispatch_alert_notification(alert_id: str):
     async def _dispatch():
-        async with AsyncSessionLocal() as db:
+        async with worker_db_session() as db:
             alert = await db.get(Alert, alert_id)
             if not alert:
                 return

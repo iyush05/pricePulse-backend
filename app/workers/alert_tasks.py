@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.workers.celery_app import celery_app
-from app.database import AsyncSessionLocal
+from app.workers.db import worker_db_session
 from app.models.subscription import Subscription
 from app.models.product import Product
 from app.models.alert import Alert
@@ -22,7 +22,7 @@ def evaluate_alerts(product_id: str, new_price: float):
     Evaluates target-price crosses and trailing drops with idempotent dispatch rules.
     """
     async def _evaluate():
-        async with AsyncSessionLocal() as db:
+        async with worker_db_session() as db:
             product = await db.get(Product, product_id)
             if not product:
                 return

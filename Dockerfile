@@ -5,11 +5,18 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+RUN sed -i 's|URIs: http://deb.debian.org/debian$|URIs: http://ftp.us.debian.org/debian|' /etc/apt/sources.list.d/debian.sources && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get -o Acquire::ForceIPv4=true \
+            -o Acquire::http::No-Cache=true \
+            -o Acquire::Pipeline-Depth=0 \
+            -o Acquire::BrokenProxy=true \
+            -o Acquire::Retries=3 \
+            update && \
+    apt-get -o Acquire::ForceIPv4=true \
+            install -y --no-install-recommends \
     curl \
-    libpq-dev \
-    git \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
